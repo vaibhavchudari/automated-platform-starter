@@ -1,0 +1,2 @@
+NAME   READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES             SELECTOR
+api    2/2     2            2           26m   api          platform-api:dev   app=api

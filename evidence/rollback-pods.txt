@@ -1,0 +1,6 @@
+NAME                        READY   STATUS    RESTARTS   AGE
+api-7c7bd8f8f7-hjtcf        1/1     Running   0          2m31s
+api-7c7bd8f8f7-kg2pw        1/1     Running   0          2m39s
+postgres-7765664f49-qjh8p   1/1     Running   0          26m
+redis-68c87f5d44-jt49c      1/1     Running   0          26m
+worker-78c664d96f-xqtg9     1/1     Running   0          26m

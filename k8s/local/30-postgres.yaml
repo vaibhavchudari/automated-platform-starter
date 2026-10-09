@@ -1,0 +1,37 @@
+# LOCAL DEMO ONLY. Uses a demo password and ephemeral storage. Never use in production.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        env:
+        - {name: POSTGRES_DB, value: platform}
+        - {name: POSTGRES_USER, value: platform}
+        - {name: POSTGRES_PASSWORD, value: local-only-change-me}
+        ports: [{containerPort: 5432}]
+        readinessProbe:
+          exec: {command: ["sh","-c","pg_isready -U platform -d platform"]}
+          initialDelaySeconds: 5
+        resources:
+          requests: {cpu: 200m, memory: 256Mi}
+          limits: {cpu: "1", memory: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: platform
+spec:
+  selector: {app: postgres}
+  ports: [{port: 5432, targetPort: 5432}]

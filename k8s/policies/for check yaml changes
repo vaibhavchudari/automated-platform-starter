@@ -1,0 +1,5 @@
+sudo grep -A4 -B1 'POSTGRES_PASSWORD' \
+  /var/lib/jenkins/eks-manifests/30-postgres.yaml
+
+sudo grep -A4 -B1 'PGPASSWORD' \
+  /var/lib/jenkins/eks-manifests/40-api.yaml

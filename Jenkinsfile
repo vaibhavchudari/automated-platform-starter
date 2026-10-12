@@ -6,13 +6,14 @@ pipeline {
     }
 
     environment {
-        AWS_REGION = 'ap-south-1'
-        AWS_ACCOUNT_ID = '323708468873'
-        ECR_REGISTRY = '323708468873.dkr.ecr.ap-south-1.amazonaws.com'
-        API_REPO = 'automated-platform-api'
-        WORKER_REPO = 'automated-platform-worker'
-        EKS_CLUSTER = 'automated-platform'
-        K8S_NAMESPACE = 'platform'
+        AWS_REGION      = 'ap-south-1'
+        AWS_ACCOUNT_ID  = '323708468873'
+        ECR_REGISTRY    = '323708468873.dkr.ecr.ap-south-1.amazonaws.com'
+        API_REPO        = 'automated-platform-api'
+        WORKER_REPO     = 'automated-platform-worker'
+        EKS_CLUSTER     = 'automated-platform'
+        K8S_NAMESPACE   = 'platform'
+        MANIFEST_DIR    = 'k8s/EKS'
     }
 
     stages {
@@ -34,7 +35,8 @@ pipeline {
                       --name "$EKS_CLUSTER"
 
                     kubectl get nodes
-                    kubectl get deployments -n "$K8S_NAMESPACE"
+                    kubectl get namespace "$K8S_NAMESPACE" \
+                      --ignore-not-found
                 '''
             }
         }
@@ -45,7 +47,7 @@ pipeline {
                     set -e
 
                     docker build \
-                      -t ${ECR_REGISTRY}/${API_REPO}:${BUILD_NUMBER} \
+                      -t "$ECR_REGISTRY/$API_REPO:$BUILD_NUMBER" \
                       ./mock-app/api
                 '''
             }
@@ -57,7 +59,7 @@ pipeline {
                     set -e
 
                     docker build \
-                      -t ${ECR_REGISTRY}/${WORKER_REPO}:${BUILD_NUMBER} \
+                      -t "$ECR_REGISTRY/$WORKER_REPO:$BUILD_NUMBER" \
                       ./mock-app/worker
                 '''
             }
@@ -68,7 +70,8 @@ pipeline {
                 sh '''
                     set -e
 
-                    aws ecr get-login-password --region "$AWS_REGION" |
+                    aws ecr get-login-password \
+                      --region "$AWS_REGION" |
                     docker login \
                       --username AWS \
                       --password-stdin "$ECR_REGISTRY"
@@ -81,8 +84,45 @@ pipeline {
                 sh '''
                     set -e
 
-                    docker push ${ECR_REGISTRY}/${API_REPO}:${BUILD_NUMBER}
-                    docker push ${ECR_REGISTRY}/${WORKER_REPO}:${BUILD_NUMBER}
+                    docker push "$ECR_REGISTRY/$API_REPO:$BUILD_NUMBER"
+                    docker push "$ECR_REGISTRY/$WORKER_REPO:$BUILD_NUMBER"
+                '''
+            }
+        }
+
+        stage('Deploy Platform Dependencies') {
+            steps {
+                sh '''
+                    set -e
+
+                    echo "Checking manifest files..."
+
+                    test -f "$MANIFEST_DIR/00-namespace.yaml"
+                    test -f "$MANIFEST_DIR/10-config.yaml"
+                    test -f "$MANIFEST_DIR/20-redis.yaml"
+                    test -f "$MANIFEST_DIR/30-postgres.yaml"
+
+                    echo "Creating namespace and configuration..."
+                    kubectl apply -f "$MANIFEST_DIR/00-namespace.yaml"
+                    kubectl apply -f "$MANIFEST_DIR/10-config.yaml"
+
+                    echo "Checking PostgreSQL credentials Secret..."
+                    kubectl get secret postgres-credentials \
+                      -n "$K8S_NAMESPACE"
+
+                    echo "Creating or updating Redis..."
+                    kubectl apply -f "$MANIFEST_DIR/20-redis.yaml"
+
+                    echo "Creating or updating PostgreSQL..."
+                    kubectl apply -f "$MANIFEST_DIR/30-postgres.yaml"
+
+                    echo "Waiting for Redis..."
+                    kubectl rollout status deployment/redis \
+                      -n "$K8S_NAMESPACE" --timeout=180s
+
+                    echo "Waiting for PostgreSQL..."
+                    kubectl rollout status deployment/postgres \
+                      -n "$K8S_NAMESPACE" --timeout=180s
                 '''
             }
         }
@@ -92,11 +132,20 @@ pipeline {
                 sh '''
                     set -e
 
-                    kubectl -n "$K8S_NAMESPACE" set image deployment/api \
-                      api=${ECR_REGISTRY}/${API_REPO}:${BUILD_NUMBER}
+                    test -f "$MANIFEST_DIR/40-api.yaml"
 
-                    kubectl -n "$K8S_NAMESPACE" rollout status deployment/api \
-                      --timeout=180s
+                    API_MANIFEST="$WORKSPACE/api-rendered.yaml"
+
+                    sed -E \
+                      "s|image: .*automated-platform-api:[^[:space:]]+|image: $ECR_REGISTRY/$API_REPO:$BUILD_NUMBER|" \
+                      "$MANIFEST_DIR/40-api.yaml" > "$API_MANIFEST"
+
+                    echo "Applying API manifest..."
+                    kubectl apply -f "$API_MANIFEST"
+
+                    echo "Waiting for API rollout..."
+                    kubectl rollout status deployment/api \
+                      -n "$K8S_NAMESPACE" --timeout=180s
                 '''
             }
         }
@@ -106,11 +155,20 @@ pipeline {
                 sh '''
                     set -e
 
-                    kubectl -n "$K8S_NAMESPACE" set image deployment/worker \
-                      worker=${ECR_REGISTRY}/${WORKER_REPO}:${BUILD_NUMBER}
+                    test -f "$MANIFEST_DIR/50-worker.yaml"
 
-                    kubectl -n "$K8S_NAMESPACE" rollout status deployment/worker \
-                      --timeout=180s
+                    WORKER_MANIFEST="$WORKSPACE/worker-rendered.yaml"
+
+                    sed -E \
+                      "s|image: .*automated-platform-worker:[^[:space:]]+|image: $ECR_REGISTRY/$WORKER_REPO:$BUILD_NUMBER|" \
+                      "$MANIFEST_DIR/50-worker.yaml" > "$WORKER_MANIFEST"
+
+                    echo "Applying worker manifest..."
+                    kubectl apply -f "$WORKER_MANIFEST"
+
+                    echo "Waiting for worker rollout..."
+                    kubectl rollout status deployment/worker \
+                      -n "$K8S_NAMESPACE" --timeout=180s
                 '''
             }
         }
@@ -120,9 +178,26 @@ pipeline {
                 sh '''
                     set -e
 
+                    echo "Checking deployments..."
                     kubectl get deployments -n "$K8S_NAMESPACE"
+
+                    echo "Checking pods..."
                     kubectl get pods -n "$K8S_NAMESPACE"
+
+                    echo "Checking services..."
                     kubectl get services -n "$K8S_NAMESPACE"
+
+                    echo "Checking API health..."
+                    kubectl run api-health-check \
+                      -n "$K8S_NAMESPACE" \
+                      --image=curlimages/curl:8.12.1 \
+                      --restart=Never \
+                      --rm -i \
+                      --command -- \
+                      curl --fail --retry 5 --retry-delay 2 \
+                      http://api:8080/healthz
+
+                    echo "Deployment verification completed."
                 '''
             }
         }
@@ -130,15 +205,11 @@ pipeline {
 
     post {
         success {
-            echo 'SUCCESS: Images built, pushed to ECR, and deployed to EKS.'
+            echo 'Pipeline completed successfully.'
         }
 
         failure {
-            echo 'FAILED: Check Console Output to identify the failed stage.'
-        }
-
-        always {
-            echo 'Pipeline execution completed.'
+            echo 'Pipeline failed. Check the stage error in Console Output.'
         }
     }
 }

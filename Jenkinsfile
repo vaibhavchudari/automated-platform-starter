@@ -6,6 +6,14 @@ pipeline {
         timestamps()
     }
 
+    environment {
+        AWS_REGION = 'ap-south-1'
+        AWS_ACCOUNT_ID = '323708468873'
+        ECR_REGISTRY = '323708468873.dkr.ecr.ap-south-1.amazonaws.com'
+        API_REPO = 'automated-platform-api'
+        WORKER_REPO = 'automated-platform-worker'
+    }
+
     stages {
         stage('Checkout') {
             steps {
@@ -15,32 +23,51 @@ pipeline {
 
         stage('Build API Image') {
             steps {
-                sh 'docker build -t platform-api:${BUILD_NUMBER} ./mock-app/api'
+                sh '''
+                    docker build \
+                      -t ${ECR_REGISTRY}/${API_REPO}:${BUILD_NUMBER} \
+                      ./mock-app/api
+                '''
             }
         }
 
         stage('Build Worker Image') {
             steps {
-                sh 'docker build -t platform-worker:${BUILD_NUMBER} ./mock-app/worker'
+                sh '''
+                    docker build \
+                      -t ${ECR_REGISTRY}/${WORKER_REPO}:${BUILD_NUMBER} \
+                      ./mock-app/worker
+                '''
             }
         }
 
-        stage('Verify Docker Images') {
+        stage('Login to ECR') {
             steps {
-                sh 'docker images'
-                sh 'docker image inspect platform-api:${BUILD_NUMBER}'
-                sh 'docker image inspect platform-worker:${BUILD_NUMBER}'
+                sh '''
+                    aws ecr get-login-password --region "$AWS_REGION" |
+                    docker login \
+                      --username AWS \
+                      --password-stdin "$ECR_REGISTRY"
+                '''
+            }
+        }
+
+        stage('Push Images to ECR') {
+            steps {
+                sh '''
+                    docker push ${ECR_REGISTRY}/${API_REPO}:${BUILD_NUMBER}
+                    docker push ${ECR_REGISTRY}/${WORKER_REPO}:${BUILD_NUMBER}
+                '''
             }
         }
     }
 
     post {
         success {
-            echo 'SUCCESS: API and Worker Docker images built successfully.'
+            echo 'SUCCESS: Both images were pushed to ECR.'
         }
-
         failure {
-            echo 'FAILED: Check the Jenkins console output for errors.'
+            echo 'FAILED: Check Console Output for the error.'
         }
     }
 }

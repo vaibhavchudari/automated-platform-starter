@@ -166,7 +166,7 @@ pipeline {
                     echo "Applying worker manifest..."
                     kubectl apply -f "$WORKER_MANIFEST"
                     kubectl apply -f "$MANIFEST_DIR/api-hpa.yaml"
-
+                    kubectl apply -f "$MANIFEST_DIR/worker-hpa.yaml"
                     echo "Waiting for worker rollout..."
                     kubectl rollout status deployment/worker \
                       -n "$K8S_NAMESPACE" --timeout=180s

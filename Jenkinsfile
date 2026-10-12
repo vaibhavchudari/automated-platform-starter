@@ -97,24 +97,24 @@ pipeline {
 
                     echo "Checking manifest files..."
 
-                    test -f "$MANIFEST_DIR/00-namespace.yaml"
-                    test -f "$MANIFEST_DIR/10-config.yaml"
-                    test -f "$MANIFEST_DIR/20-redis.yaml"
-                    test -f "$MANIFEST_DIR/30-postgres.yaml"
+                    test -f "$MANIFEST_DIR/namespace.yaml"
+                    test -f "$MANIFEST_DIR/config.yaml"
+                    test -f "$MANIFEST_DIR/redis.yaml"
+                    test -f "$MANIFEST_DIR/postgres.yaml"
 
                     echo "Creating namespace and configuration..."
-                    kubectl apply -f "$MANIFEST_DIR/00-namespace.yaml"
-                    kubectl apply -f "$MANIFEST_DIR/10-config.yaml"
+                    kubectl apply -f "$MANIFEST_DIR/namespace.yaml"
+                    kubectl apply -f "$MANIFEST_DIR/config.yaml"
 
                     echo "Checking PostgreSQL credentials Secret..."
                     kubectl get secret postgres-credentials \
                       -n "$K8S_NAMESPACE"
 
                     echo "Creating or updating Redis..."
-                    kubectl apply -f "$MANIFEST_DIR/20-redis.yaml"
+                    kubectl apply -f "$MANIFEST_DIR/redis.yaml"
 
                     echo "Creating or updating PostgreSQL..."
-                    kubectl apply -f "$MANIFEST_DIR/30-postgres.yaml"
+                    kubectl apply -f "$MANIFEST_DIR/postgres.yaml"
 
                     echo "Waiting for Redis..."
                     kubectl rollout status deployment/redis \
@@ -132,13 +132,13 @@ pipeline {
                 sh '''
                     set -e
 
-                    test -f "$MANIFEST_DIR/40-api.yaml"
+                    test -f "$MANIFEST_DIR/api.yaml"
 
                     API_MANIFEST="$WORKSPACE/api-rendered.yaml"
 
                     sed -E \
                       "s|image: .*automated-platform-api:[^[:space:]]+|image: $ECR_REGISTRY/$API_REPO:$BUILD_NUMBER|" \
-                      "$MANIFEST_DIR/40-api.yaml" > "$API_MANIFEST"
+                      "$MANIFEST_DIR/api.yaml" > "$API_MANIFEST"
 
                     echo "Applying API manifest..."
                     kubectl apply -f "$API_MANIFEST"
@@ -155,13 +155,13 @@ pipeline {
                 sh '''
                     set -e
 
-                    test -f "$MANIFEST_DIR/50-worker.yaml"
+                    test -f "$MANIFEST_DIR/worker.yaml"
 
                     WORKER_MANIFEST="$WORKSPACE/worker-rendered.yaml"
 
                     sed -E \
                       "s|image: .*automated-platform-worker:[^[:space:]]+|image: $ECR_REGISTRY/$WORKER_REPO:$BUILD_NUMBER|" \
-                      "$MANIFEST_DIR/50-worker.yaml" > "$WORKER_MANIFEST"
+                      "$MANIFEST_DIR/worker.yaml" > "$WORKER_MANIFEST"
 
                     echo "Applying worker manifest..."
                     kubectl apply -f "$WORKER_MANIFEST"

@@ -165,6 +165,7 @@ pipeline {
 
                     echo "Applying worker manifest..."
                     kubectl apply -f "$WORKER_MANIFEST"
+                    kubectl apply -f "$MANIFEST_DIR/api-hpa.yaml"
 
                     echo "Waiting for worker rollout..."
                     kubectl rollout status deployment/worker \
